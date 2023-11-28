@@ -1,0 +1,75 @@
+import cvxpy as cp
+import numpy as np
+
+# Matrix of binary paths from locations i to location j (shows which locations were chosen and order)
+pb = cp.Variable((11, 11), boolean=True)
+m, n = pb.shape
+
+# Binary variable saying whether you ride each ride/visit location
+x = cp.Variable(11, boolean=True)
+
+# Travel times from i to j, 1st row is front gate
+p = np.array([[0, 7, 9, 7, 7, 9, 4, 12, 7, 9, 9],
+              [7, 0, 4, 10, 9, 3, 2, 6, 9, 10, 4],
+              [9, 4, 0, 12, 12, 5, 5, 8, 12, 12, 4],
+              [7, 9, 12, 0, 5, 12, 7, 11, 5, 7, 12],
+              [7, 9, 12, 5, 0, 8, 7, 6, 1, 2, 12],
+              [9, 3, 5, 13, 8, 0, 5, 3, 8, 7, 7],
+              [4, 2, 5, 7, 7, 5, 0, 9, 7, 9, 5],
+              [12, 6, 8, 11, 6, 3, 9, 0, 6, 4, 10],
+              [7, 9, 12, 5, 1, 8, 7, 6, 0, 2, 12],
+              [9, 10, 12, 7, 2, 7, 9, 4, 2, 0, 14],
+              [9, 4, 4, 12, 12, 7, 5, 10, 12, 14, 0]])
+
+# Shows the wait times of each ride
+t = np.array([0, 14, 36, 45, 32, 30, 28, 45, 37, 27, 20])
+
+# needed for subloop constraint
+u = cp.Variable(11, integer=True)
+
+# Ratings of each ride
+ratings = np.array([0, 5, 9, 9.5, 7, 6.5, 7.5, 8.5, 4, 6, 8])
+
+# Objective function
+obj_func = cp.sum(x @ ratings)
+
+constraints = []
+
+# Ensures the front gate is hit
+constraints.append(cp.sum(pb[0, :], axis=0, keepdims=True) == 1)
+
+# Ensures every ride is ridden only once
+for j in range(n):
+    constraints.append(cp.sum(pb[:, j], axis=0, keepdims=True) <= 1)
+
+for i in range(m):
+    constraints.append(cp.sum(pb[i, :]) <= 1)
+
+# Large constraint equation
+b = cp.sum(cp.multiply(pb, p + t))
+constraints.append(b <= 180)
+
+# Ensures the rows are consistent with what rides are ridden
+for i in range(m):
+    constraints.append(cp.sum(pb[i, :], axis=0, keepdims=True) == x[i])
+
+# Eliminate subtours
+constraints.append(u[0] == 1)
+for i in range(1, m):
+    for j in range(1, n):
+        constraints.append(u[i] - u[j] + n * pb[i, j] <= n - 1)
+
+# Constraint so that if you travel to location j, you must travel from location j
+for j in range(n):
+    constraints.append(cp.sum(pb[j, :]) == cp.sum(pb[:, j]))
+
+# Define the optimization problem
+problem = cp.Problem(cp.Maximize(obj_func), constraints)
+
+problem.solve(solver=cp.GUROBI, verbose=False)
+
+# Print results
+print("obj_func =", obj_func.value)
+print("x =", x.value)
+print("total waiting time: ", b.value)
+print(pb.value)
